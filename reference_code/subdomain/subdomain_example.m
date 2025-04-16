@@ -2,7 +2,7 @@ clearvars -except scripts_to_run
 close all;
 restoredefaultpath;
 addpath(genpath('../code'));
-% addpath(genpath('../subdoms'));
+addpath(genpath('../subdoms'));
 
 %--------------------------------------------------------------------------
 %DEFINE THE PROBLEM

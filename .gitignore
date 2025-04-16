@@ -1,4 +1,7 @@
 *.asv
 *.mat
 *.mp4
+*.pdf
 
+misc_results
+examples/models
