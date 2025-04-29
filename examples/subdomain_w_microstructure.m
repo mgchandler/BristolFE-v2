@@ -15,14 +15,14 @@ model_type = model_types(5);
 
 %DEFINE THE PROBLEM
 Iteration = 1;
-G1=[12.5]*1e-6; % Grain size 1
+G1=[25]*1e-6; % Grain size 1
 RUN_NUM=[1]; % Run number - see B1 for details
-sample_width = 2e-3; % 5e-3;
-sample_depth = 2e-3; % 5e-3;
+sample_width = 5e-3;
+sample_depth = 6.5e-3;
 
 numrun = 1e6;
 % el_size = 12.5e-6; %20 elements per wavelength, 10MHz
-el_size = 12.5e-6; %20 elements per wavelength, 5MHz
+el_size = 7.5e-6; %20 elements per wavelength, 5MHz
 TPC_r_step = 2e-6;
 elementtype = 'CPE3';
 save_dir = [ pwd '\' 'models'];
@@ -51,16 +51,21 @@ col2 = hsv2rgb([2/3,0,0.50]); %Colour for display
 src_dir = 2; %direction of forces applied: 1 = x, 2 = y, 3 = z (for solids)
 
 %TEST
-centre_freq = 5e6; % Centre frequency in Hz
+centre_freq = 10e6; % Centre frequency in Hz
 fe_options.number_of_cycles = 4; % Number of cycles
 max_time = 10e-6; % Duration of the pulse in seconds, increase when needed
 %sampling_freq = 2e9/4; % Sampling frequency in Hz
+fe_options.use_gpu_if_available = 1;
 
 % From Pettit, good level is 1.5 * wavelength
-abs_bdry_thickness = 1.5 * 5300 / centre_freq;
+abs_bdry_thickness = 1.75 * 5300 / centre_freq;
+
+crack_depth = 0.5e-3;
+crack_width = 100e-6;
 
 repeats = 1;
 for ii = 1:repeats
+    t1 = datetime("now", "Format", "hh:mm:ss.SSS");
     clear main
     % Investigate the time these functions take to run. Moved from above
     switch model_type
@@ -132,9 +137,9 @@ for ii = 1:repeats
             el_type = 'CPE3';
     %         elastic_matrix = [2.0460 1.3770 2.0460 1.3770 1.3770 2.0460 0  0  0 1.2620  0       ...
     %             0 0  0  1.2620    0    0    0    0   0    1.2620]*1.0e+11; % stainless_steel
-            elastic_matrix = [1.77 0.91 1.77 0.91 0.91 1.77 0  0  0 0.43  0       ...
-                0 0  0  0.43    0    0    0    0   0    0.43]*1.0e+11; % stainless_steel
-            [mod, GRAIN_label] = fn_gen_grain_structure_and_mesh(G1,RUN_NUM,elementtype,el_size,sample_width + 2*abs_bdry_thickness, sample_depth + abs_bdry_thickness, mat);
+            elastic_matrix = [170  92 170  70  70 192   0   0   0  52  0       ...
+                0 0  0  52    0    0    0    0   0    39]*1.0e+9; % titanium
+            [mod, GRAIN_label] = fn_gen_grain_structure_and_mesh(G1,RUN_NUM,elementtype,el_size,sample_width + 2*abs_bdry_thickness, sample_depth, mat);
             mod.nds = mod.nds - [abs_bdry_thickness, 0];
             [matls, dis] = fn_gen_grain_matls_2(elastic_matrix, rho, col, name, el_type, GRAIN_label, set_col, el_size);
             %Material properties
@@ -152,8 +157,8 @@ for ii = 1:repeats
     mod = fn_add_absorbing_layer(mod, abs_bdry_pts, abs_bdry_thickness);
     
     %Define array
-    no_els = 3;
-    pitch = 0.5e-3;
+    no_els = 8;
+    pitch = 0.21e-3;
     array_depth = 0;
     centre = [sample_width / 2, array_depth];
     
@@ -167,7 +172,7 @@ for ii = 1:repeats
     %in subdomain models, requesting field output causes the main model to be
     %executed twice for each transducer element, once to generate the transfer
     %functions and once to generate the field output.
-    fe_options.field_output_every_n_frames = 10;
+    % fe_options.field_output_every_n_frames = 10;
     %--------------------------------------------------------------------------
     %PREPARE THE MESH
     main.mod = mod;
@@ -191,12 +196,14 @@ for ii = 1:repeats
     %Create a subdomain in the middle with a hole in surface as scatterer
     a = linspace(0, 2*pi, 361)';
     scatterer_size = 100e-6;
-    subdomain_size = 1.5 * scatterer_size;
-    inner_bdry = [cos(a), sin(a)] / 2 * subdomain_size + [sample_width/2, 1.5e-3];% .* [sample_width, sample_depth];
-    scat_pts = [cos(a), sin(a)] / 2 * scatterer_size + [sample_width/2, 1.5e-3];% .* [sample_width, sample_depth];
+    subdomain_size = 1.1e-3;
+    inner_bdry = [cos(a), sin(a)] / 2 * subdomain_size + [sample_width/2, sample_depth];% .* [sample_width, sample_depth];
+    % scat_pts = [cos(a), sin(a)] / 2 * scatterer_size + [sample_width/2, 1.5e-3];% .* [sample_width, sample_depth];
+    scat_pts = [[-crack_width/2; crack_width/2; crack_width/2; -crack_width/2], [0; 0; -crack_depth; -crack_depth]] + [sample_width / 2, sample_depth];
     main.doms{1}.mod = fn_create_subdomain(main.mod, main.matls, inner_bdry, abs_bdry_thickness);
     main.doms{1}.mod = fn_add_scatterer(main.doms{1}.mod, main.matls, scat_pts, 0);
-    
+
+
     %Show the mesh
     % if ~exist('scripts_to_run') %suppress graphics when running all scripts for testing
     % 
@@ -213,28 +220,32 @@ for ii = 1:repeats
     
     %Run main model
     fe_options.validation_mode = 0;
-    main = fn_run_main_model(main, fe_options);
+    % main = fn_run_main_model(main, fe_options);
 
 %Run sub-domain model
-% main = fn_run_subdomain_model(main, fe_options);
+    main = fn_run_subdomain_model(main, fe_options);
 
 % %Animate results if requested
 % if ~isinf(fe_options.field_output_every_n_frames)
-%     figure;
+    % figure;
 %     anim_options.repeat_n_times = 1;
-%     anim_options.db_range = [-40, 0];
+    % anim_options.db_range = [-40, 0];
 %     anim_options.pause_value = 0.001;
 %     anim_options.frame_rate = 24;
 %     anim_options.mp4_out = './microstructure_6.5mm_8el_5mhz.mp4';
-%     h_patches = fn_show_geometry_with_subdomains(main, anim_options);
+    % h_patches = fn_show_geometry_with_subdomains(main, anim_options);
 %     fn_run_subdomain_animations(main, h_patches, anim_options);
 % end
 % 
 % %Run validation model
     fe_options.validation_mode = 1;
     main = fn_run_main_model(main, fe_options);
-
-%     save([save_dir, '\titanium_halfspace_5mhz_pristine_' num2str(ii) '.mat'], "main")
+    
+    % save([save_dir, '\titanium_crack_halfspace_15mhz_pristine_' num2str(ii) '.mat'], "main", "-v7.3")
+    exp_data = main.doms{1}.res.fmc;
+    save([save_dir, '\titanium_crack_halfspace_15mhz_pristine_' num2str(ii) '_res.mat'], "exp_data", "-v7.3")
+    exp_data = main.doms{1}.val.fmc;
+    save([save_dir, '\titanium_crack_halfspace_15mhz_pristine_' num2str(ii) '_val.mat'], "exp_data", "-v7.3")
 % 
 % %Animate validation results if requested
 % if ~exist('scripts_to_run') %suppress graphics when running all scripts for testing
@@ -263,6 +274,7 @@ for ii = 1:repeats
     legend('Sub-domain method', 'Validation', 'Difference');
 % savefig('Backscattering-6.5mm_8el_5mhz.fig')
 
+    t2 = datetime("now", "Format", "hh:mm:ss.SSS");
+    disp(t2 - t1)
+
 end
-
-

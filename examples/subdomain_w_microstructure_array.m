@@ -19,17 +19,20 @@ model_type = model_types(5);
 
 %DEFINE THE PROBLEM
 Iteration = 1;
-grains = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 60, 75, 90, 120]*1e-6;
+grains = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 60, 75, 90, 120, 150, 200, 250]*1e-6;
 RUN_NUM=[1]; % Run number - see B1 for details
-sample_width = 0.5e-3; % 5e-3;
-sample_depth = 6.5e-3; % 5e-3;
+sample_width = 1.5e-3; % 16e-3;
+sample_depth = 2.5e-3; % 6.5e-3;
+
+crack_depth = 0.5e-3;
+crack_width = 400e-6;
 
 numrun = 1e6;
 % el_size = 12.5e-6; %20 elements per wavelength, 10MHz
-el_size = 7.5e-6; %20 elements per wavelength, 5MHz
+el_size = 10e-6; %20 elements per wavelength, 5MHz
 TPC_r_step = 2e-6;
 elementtype = 'CPE3';
-save_dir = [ pwd '\' 'models' '\' 'grain-size-study'];
+save_dir = [ pwd '\' 'models'];
 if ~exist(save_dir)
     mkdir(save_dir)
 end
@@ -62,12 +65,12 @@ max_time = 10e-6; % Duration of the pulse in seconds, increase when needed
 fe_options.use_gpu_if_available = 1;
 
 % From Pettit, good level is 1.5 * wavelength
-abs_bdry_thickness = 2.0 * 6240 / centre_freq;
+abs_bdry_thickness = 1.5 * 6240 / centre_freq; % 2.0 * 6240 / centre_freq;
 
-repeats = 9;
+repeats = 1;
 for jj = 0:repeats
-    for ii = 11%1:size(grains, 2)
-        savename = [save_dir, '\titanium-backscatter-15mhz-' num2str(grains(ii)*1e6) 'umgrains-wider-val' num2str(jj) '.mat'];
+    for ii = 10
+        savename = [save_dir, '\titanium-backscatter-15mhz-' num2str(grains(ii)*1e6) 'umgrains-crack' num2str(crack_width*1e6) 'um-val' num2str(jj) '.mat'];
         if exist(savename, 'file')
             continue
         end
@@ -164,8 +167,8 @@ for jj = 0:repeats
         mod = fn_add_absorbing_layer(mod, abs_bdry_pts, abs_bdry_thickness);
         
         %Define array
-        no_els = 1;
         pitch = 0.21e-3;
+        no_els = 2; % 64;
         array_depth = 0;
         centre = [sample_width / 2, array_depth];
         
@@ -179,7 +182,7 @@ for jj = 0:repeats
         %in subdomain models, requesting field output causes the main model to be
         %executed twice for each transducer element, once to generate the transfer
         %functions and once to generate the field output.
-        % fe_options.field_output_every_n_frames = 50;
+%         fe_options.field_output_every_n_frames = 50;
         %--------------------------------------------------------------------------
         %PREPARE THE MESH
         main.mod = mod;
@@ -202,33 +205,45 @@ for jj = 0:repeats
         
         %Create a subdomain in the middle with a hole in surface as scatterer
         a = linspace(0, 2*pi, 361)';
-        scatterer_size = 100e-6;
-        subdomain_size = 1.5 * scatterer_size;
-        inner_bdry = [cos(a), sin(a)] / 2 * subdomain_size + [sample_width/2, 5e-3];% .* [sample_width, sample_depth];
-        scat_pts = [cos(a), sin(a)] / 2 * scatterer_size + [sample_width/2, 5e-3];% .* [sample_width, sample_depth];
+        subdomain_size = 1.0e-3;
+        inner_bdry = [cos(a), sin(a)] / 2 * subdomain_size + [sample_width/2, sample_depth];% .* [sample_width, sample_depth];
+        scat_pts = [[-crack_width/2; crack_width/2; crack_width/2; -crack_width/2], [0; 0; -crack_depth; -crack_depth]] + [sample_width / 2, sample_depth];
         main.doms{1}.mod = fn_create_subdomain(main.mod, main.matls, inner_bdry, abs_bdry_thickness);
-        % main.doms{1}.mod = fn_add_scatterer(main.doms{1}.mod, main.matls, scat_pts, 0);
-        
+%         main.doms{1}.mod = fn_add_scatterer(main.doms{1}.mod, main.matls, scat_pts, 0);
+
         %Show the mesh
         % if ~exist('scripts_to_run') %suppress graphics when running all scripts for testing
         % 
-        %     figure;
-            display_options.draw_elements = 0;
-            col = 'rgbmkyc';
-            for t = 1:no_els
-                display_options.node_sets_to_plot(t).nd = main.trans{t}.nds;
-                display_options.node_sets_to_plot(t).col = 'r.';
-            end
-            h_patch = fn_show_geometry_2(mod, cell2mat(matls), display_options);
+%             figure;
+%             display_options.draw_elements = 0;
+%             col = 'rgbmkyc';
+%             for t = 1:no_els
+%                 display_options.node_sets_to_plot(t).nd = main.trans{t}.nds;
+%                 display_options.node_sets_to_plot(t).col = 'r.';
+%             end
+%             h_patch = fn_show_geometry_2(mod, cell2mat(matls), display_options);
         % end
         %--------------------------------------------------------------------------
         
         %Run main model
-        % fe_options.validation_mode = 0;
-        % main = fn_run_main_model(main, fe_options);
+        fe_options.validation_mode = false;
+        main = fn_run_main_model(main, fe_options);
+%         fe_options.validation_mode = true;
+%         main = fn_run_main_model(main, fe_options);
+
+%         % Reduce the main model - not all needed any longer.
+%         main_reduced = main;
+%         for fld =  ["nds", "els", "rows", "columns", "el_mat_i", "el_abs_i", "max_safe_time_step", "design_centre_freq"]
+%             main_reduced.mod = rmfield(main_reduced.mod, fld);
+%         end
+%         [unique_matls, unique_matls_i] = unique(main_reduced.doms{1}.mod.el_mat_i);
+%         main_reduced.matls = main_reduced.matls(unique_matls);
+%         main_reduced.doms{1}.mod.el_mat_i = unique_matls_i;
+%         main_reduced.mod.el_typ_i = main_reduced.mod.el_typ_i(unique_matls);
     % 
     % %Run sub-domain model
-        % main = fn_run_subdomain_model(main, fe_options);
+        fe_options.validation_mode = false;
+        main = fn_run_subdomain_model(main, fe_options);
     
     % %Animate results if requested
     % if ~isinf(fe_options.field_output_every_n_frames)
@@ -237,12 +252,11 @@ for jj = 0:repeats
         % anim_options.db_range = [-40, 0];
         % anim_options.pause_value = 0.001;
         % anim_options.frame_rate = 24;
-        % anim_options.mp4_out = './microstructure_6.5mm_8el_5mhz.mp4';
+        % % anim_options.mp4_out = './microstructure_6.5mm_8el_5mhz.mp4';
         % h_patches = fn_show_geometry_with_subdomains(main, anim_options);
         % fn_run_subdomain_animations(main, h_patches, anim_options);
     % end
     % 
-
     % %Run validation model
         fe_options.validation_mode = 1;
         main = fn_run_main_model(main, fe_options);
@@ -252,7 +266,7 @@ for jj = 0:repeats
     % %Animate validation results if requested
     % if ~exist('scripts_to_run') %suppress graphics when running all scripts for testing
         % if ~isinf(fe_options.field_output_every_n_frames)
-        %     figure;
+            % figure;
         %     anim_options.repeat_n_times = 1;
         %     anim_options.db_range = [-60, 0];
         %     anim_options.pause_value = 0.001;
@@ -278,7 +292,7 @@ for jj = 0:repeats
     
         exp_data = main.doms{1}.val.fmc;
         exp_data.ph_velocity = 6240;
-        save(savename, 'exp_data')
+%         save(savename, 'exp_data')
         t4 = datetime("now", "Format", "hh:mm:ss.SSS");
         disp(t4 - t3)
     end
